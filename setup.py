@@ -16,7 +16,7 @@ setup(
     long_description_content_type="text/markdown",
     url="https://github.com/hmbcompany/rag-toolkit",
     author="RAG Toolkit Team",
-    author_email="hello@ragtoolkit.dev",
+    author_email="hello@ragtoolkit.com",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -67,7 +67,7 @@ setup(
     project_urls={
         "Bug Reports": "https://github.com/hmbcompany/rag-toolkit/issues",
         "Source": "https://github.com/hmbcompany/rag-toolkit/",
-        "Documentation": "https://docs.ragtoolkit.dev/",
-        "Homepage": "https://ragtoolkit.dev/",
+        "Documentation": "https://docs.ragtoolkit.com/",
+        "Homepage": "https://ragtoolkit.com/",
     },
 ) 
