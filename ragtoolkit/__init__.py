@@ -8,10 +8,12 @@ RAG answer quality, safety, and cost.
 __version__ = "0.2.0"
 
 from .sdk.tracer import trace, RAGTracker, configure_tracker
+from .sdk import connectors
 
 __all__ = [
     "trace", 
     "RAGTracker", 
     "configure_tracker",
+    "connectors",
     "__version__"
 ] 
