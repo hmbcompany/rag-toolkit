@@ -108,3 +108,9 @@ results.json
 secrets/
 *.key
 *.pem 
+# Business-sensitive documents
+MONETIZATION_STRATEGY.md
+mvp-prd.md
+prd-stage-2.md
+*.prd.md
+business-docs/
