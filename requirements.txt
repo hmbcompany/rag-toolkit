@@ -1,0 +1,35 @@
+# Core dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+httpx>=0.25.0
+
+# Database
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0  # PostgreSQL driver
+
+# ML/AI dependencies
+numpy>=1.24.0
+scikit-learn>=1.3.0
+
+# CLI
+typer>=0.9.0
+rich>=13.0.0
+
+# Async support
+asyncio-mqtt>=0.11.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+
+# Development
+black>=23.0.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.5.0
+
+# Optional: For enhanced features
+# openai>=1.0.0  # For LLM-based evaluation
+# anthropic>=0.3.0  # Alternative LLM provider 
