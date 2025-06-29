@@ -199,6 +199,35 @@ async def health_check():
     return {"status": "healthy", "version": "0.2.0"}
 
 
+@app.get("/api/config")
+async def get_config():
+    """Get user configuration for the integration wizard."""
+    from ..config import get_config
+    
+    config = get_config()
+    return {
+        "api_url": config.api_url,
+        "project": config.project,
+        "token": config.token,
+        "version": config.version
+    }
+
+
+@app.patch("/api/config")
+async def update_config(updates: dict):
+    """Update user configuration."""
+    from ..config import ConfigManager
+    
+    # Initialize config manager
+    config_manager = ConfigManager()
+    
+    # Update specific fields
+    if "project" in updates:
+        config_manager.update_project(updates["project"])
+    
+    return {"status": "updated", "updates": updates}
+
+
 @app.post("/api/v1/traces", status_code=201)
 async def create_trace(
     trace: TraceCreate,

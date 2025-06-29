@@ -4,6 +4,7 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import TracesList from './components/TracesList';
 import TraceDetail from './components/TraceDetail';
+import IntegrationWizard from './components/IntegrationWizard';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/traces" element={<TracesList />} />
             <Route path="/traces/:traceId" element={<TraceDetail />} />
+            <Route path="/integrate" element={<IntegrationWizard />} />
           </Routes>
         </main>
       </div>

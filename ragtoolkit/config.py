@@ -115,6 +115,17 @@ class ConfigManager:
         self.save_config(config)
         self._config = None  # Force reload
         return self.load_config()
+    
+    def update_project(self, project: str) -> RAGToolkitConfig:
+        """Update the project name.
+        
+        Args:
+            project: New project name
+            
+        Returns:
+            Updated configuration
+        """
+        return self.update_config(project=project)
 
 
 # Global config manager instance

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, BarChart3, List } from 'lucide-react';
+import { Activity, BarChart3, List, Zap } from 'lucide-react';
 
 const Header = () => {
   const location = useLocation();
@@ -8,6 +8,7 @@ const Header = () => {
   const navigation = [
     { name: 'Dashboard', href: '/', icon: BarChart3 },
     { name: 'Traces', href: '/traces', icon: List },
+    { name: 'Integrate', href: '/integrate', icon: Zap },
   ];
 
   return (
