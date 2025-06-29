@@ -18,6 +18,7 @@ import logging
 
 import httpx
 
+from ..config import get_config
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class TraceData:
     """Structure for capturing RAG trace data."""
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: float = field(default_factory=time.time)
+    project: str = "default"
     user_input: Optional[str] = None
     retrieved_chunks: List[Dict[str, Any]] = field(default_factory=list)
     retrieval_scores: List[float] = field(default_factory=list)
@@ -43,9 +45,13 @@ class TraceData:
 class RAGTracker:
     """Main tracker class for managing RAG traces."""
     
-    def __init__(self, api_url: str = "http://localhost:8000", api_key: Optional[str] = None):
-        self.api_url = api_url.rstrip('/')
-        self.api_key = api_key
+    def __init__(self, api_url: Optional[str] = None, api_key: Optional[str] = None, project: Optional[str] = None):
+        # Load configuration
+        config = get_config()
+        
+        self.api_url = (api_url or config.api_url).rstrip('/')
+        self.api_key = api_key or config.token
+        self.project = project or config.project
         self.session = httpx.AsyncClient()
         self._current_trace = threading.local()
         
@@ -69,6 +75,7 @@ class RAGTracker:
     def start_trace(self, user_input: str = None, **metadata) -> TraceData:
         """Start a new trace."""
         trace_data = TraceData(
+            project=self.project,
             user_input=user_input,
             metadata=metadata
         )
@@ -162,13 +169,21 @@ class RAGTracker:
 
 
 # Global tracker instance
-_global_tracker = RAGTracker()
+_global_tracker = None
 
 
-def configure_tracker(api_url: str = "http://localhost:8000", api_key: str = None):
+def get_global_tracker() -> RAGTracker:
+    """Get or create the global tracker instance."""
+    global _global_tracker
+    if _global_tracker is None:
+        _global_tracker = RAGTracker()
+    return _global_tracker
+
+
+def configure_tracker(api_url: Optional[str] = None, api_key: Optional[str] = None, project: Optional[str] = None):
     """Configure the global tracker instance."""
     global _global_tracker
-    _global_tracker = RAGTracker(api_url=api_url, api_key=api_key)
+    _global_tracker = RAGTracker(api_url=api_url, api_key=api_key, project=project)
 
 
 def trace(func=None, *, user_input_key: str = None, output_key: str = None):
@@ -201,7 +216,7 @@ def trace(func=None, *, user_input_key: str = None, output_key: str = None):
             elif len(args) > 0:
                 user_input = str(args[0])
                 
-            with _global_tracker.trace_context(user_input=user_input, function=func.__name__) as trace:
+            with get_global_tracker().trace_context(user_input=user_input, function=func.__name__) as trace:
                 start_time = time.time()
                 
                 try:
@@ -214,12 +229,12 @@ def trace(func=None, *, user_input_key: str = None, output_key: str = None):
                     else:
                         output = str(result)
                         
-                    _global_tracker.set_model_output(output)
+                    get_global_tracker().set_model_output(output)
                     
                     return result
                     
                 except Exception as e:
-                    _global_tracker.set_error(str(e))
+                    get_global_tracker().set_error(str(e))
                     raise
                     
         @wraps(func)
@@ -231,7 +246,7 @@ def trace(func=None, *, user_input_key: str = None, output_key: str = None):
             elif len(args) > 0:
                 user_input = str(args[0])
                 
-            with _global_tracker.trace_context(user_input=user_input, function=func.__name__) as trace:
+            with get_global_tracker().trace_context(user_input=user_input, function=func.__name__) as trace:
                 start_time = time.time()
                 
                 try:
@@ -244,12 +259,12 @@ def trace(func=None, *, user_input_key: str = None, output_key: str = None):
                     else:
                         output = str(result)
                         
-                    _global_tracker.set_model_output(output)
+                    get_global_tracker().set_model_output(output)
                     
                     return result
                     
                 except Exception as e:
-                    _global_tracker.set_error(str(e))
+                    get_global_tracker().set_error(str(e))
                     raise
                     
         # Return appropriate wrapper based on function type
@@ -268,14 +283,14 @@ def trace(func=None, *, user_input_key: str = None, output_key: str = None):
 # Convenience functions
 def get_current_trace() -> Optional[TraceData]:
     """Get current trace data."""
-    return _global_tracker.current_trace
+    return get_global_tracker().current_trace
 
 
 def add_retrieval_context(chunks: List[Dict[str, Any]], scores: List[float] = None):
     """Add retrieval context to current trace."""
-    _global_tracker.add_retrieved_chunks(chunks, scores)
+    get_global_tracker().add_retrieved_chunks(chunks, scores)
 
 
 def add_prompt_to_trace(prompt: str):
     """Add prompt to current trace."""
-    _global_tracker.add_prompt(prompt) 
+    get_global_tracker().add_prompt(prompt) 

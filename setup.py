@@ -10,13 +10,13 @@ long_description = (here / "README.md").read_text(encoding="utf-8") if (here / "
 
 setup(
     name="ragtoolkit",
-    version="0.1.0",
+    version="0.2.0",
     description="Observability and evaluation toolkit for RAG applications",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/ragtoolkit",
-    author="Your Name",
-    author_email="your.email@example.com",
+    url="https://github.com/hamishbuist/rag-toolkit-app",
+    author="RAG Toolkit Team",
+    author_email="support@ragtoolkit.com",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -42,6 +42,7 @@ setup(
         "scikit-learn>=1.3.0",
         "typer>=0.9.0",
         "rich>=13.0.0",
+        "pyyaml>=6.0.0",
     ],
     extras_require={
         "dev": [
@@ -64,8 +65,9 @@ setup(
         ],
     },
     project_urls={
-        "Bug Reports": "https://github.com/yourusername/ragtoolkit/issues",
-        "Source": "https://github.com/yourusername/ragtoolkit/",
-        "Documentation": "https://ragtoolkit.readthedocs.io/",
+        "Bug Reports": "https://github.com/hamishbuist/rag-toolkit-app/issues",
+        "Source": "https://github.com/hamishbuist/rag-toolkit-app/",
+        "Documentation": "https://docs.ragtoolkit.com/",
+        "Homepage": "https://ragtoolkit.com/",
     },
 ) 

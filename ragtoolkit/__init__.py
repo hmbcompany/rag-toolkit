@@ -5,8 +5,13 @@ A vendor-neutral toolkit for capturing, measuring, and monitoring
 RAG answer quality, safety, and cost.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .sdk.tracer import trace, RAGTracker, configure_tracker
 
-__all__ = ["trace", "RAGTracker", "configure_tracker"] 
+__all__ = [
+    "trace", 
+    "RAGTracker", 
+    "configure_tracker",
+    "__version__"
+] 

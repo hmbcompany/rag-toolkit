@@ -189,8 +189,14 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    """Health check endpoint."""
-    return {"message": "RAG Toolkit API", "version": "0.1.0", "status": "healthy"}
+    """Root endpoint."""
+    return {"message": "RAG Toolkit API", "version": "0.2.0", "status": "healthy"}
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker."""
+    return {"status": "healthy", "version": "0.2.0"}
 
 
 @app.post("/api/v1/traces", status_code=201)

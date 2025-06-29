@@ -1,0 +1,21 @@
+include README.md
+include LICENSE
+include requirements.txt
+include docker-compose.yml
+include docker-compose.production.yml
+include Dockerfile
+include Dockerfile.frontend
+include Dockerfile.production
+include install.sh
+recursive-include ragtoolkit *.py
+recursive-include ragtoolkit/ui/src *.js *.css *.html *.json
+recursive-include ragtoolkit/ui *.json *.js *.md
+recursive-include examples *.py
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .git*
+global-exclude *.log
+global-exclude .env
+global-exclude node_modules
+prune ragtoolkit/ui/node_modules
+prune ragtoolkit-env 

@@ -1,0 +1,65 @@
+# Multi-stage production build for RAG Toolkit
+FROM node:18-alpine AS frontend-build
+
+# Build the React frontend
+WORKDIR /app/frontend
+COPY ragtoolkit/ui/package.json ragtoolkit/ui/package-lock.json* ./
+RUN npm install
+
+COPY ragtoolkit/ui/ ./
+RUN npm run build
+
+# Python backend stage
+FROM python:3.11-slim AS backend
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy Python requirements and install dependencies
+COPY requirements.txt setup.py ./
+COPY ragtoolkit/ ./ragtoolkit/
+RUN pip install --no-cache-dir -e .
+
+# Copy the built frontend
+COPY --from=frontend-build /app/frontend/build ./ragtoolkit/ui/build
+
+# Create a simple static file server script for the frontend
+RUN echo '#!/usr/bin/env python3\n\
+import http.server\n\
+import socketserver\n\
+import os\n\
+\n\
+PORT = 3000\n\
+os.chdir("/app/ragtoolkit/ui/build")\n\
+\n\
+Handler = http.server.SimpleHTTPRequestHandler\n\
+with socketserver.TCPServer(("", PORT), Handler) as httpd:\n\
+    print(f"Frontend serving at port {PORT}")\n\
+    httpd.serve_forever()\n' > /app/serve_frontend.py && chmod +x /app/serve_frontend.py
+
+# Create startup script that runs both API and frontend
+RUN echo '#!/bin/bash\n\
+set -e\n\
+\n\
+# Start the frontend in background\n\
+python3 /app/serve_frontend.py &\n\
+FRONTEND_PID=$!\n\
+\n\
+# Start the API in foreground\n\
+exec uvicorn ragtoolkit.api.main:app --host 0.0.0.0 --port 8000\n' > /app/start.sh && chmod +x /app/start.sh
+
+# Expose ports
+EXPOSE 8000 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+# Start both services
+CMD ["/app/start.sh"] 
