@@ -1,0 +1,63 @@
+{
+  "name": "@ragtoolkit/sdk",
+  "version": "0.2.0",
+  "description": "TypeScript/JavaScript SDK for RAG Toolkit - observability and evaluation for RAG applications",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "rag",
+    "llm", 
+    "ai",
+    "observability",
+    "evaluation",
+    "retrieval",
+    "typescript",
+    "javascript"
+  ],
+  "author": "RAG Toolkit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hmbcompany/rag-toolkit.git",
+    "directory": "typescript-sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/hmbcompany/rag-toolkit/issues"
+  },
+  "homepage": "https://github.com/hmbcompany/rag-toolkit#readme",
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "openai": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.24.0"
+  },
+  "peerDependenciesMeta": {
+    "openai": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    }
+  }
+} 
