@@ -111,10 +111,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 services:
   postgres:
     image: postgres:15-alpine
-    environment:
-      POSTGRES_DB: ragtoolkit
-      POSTGRES_USER: ragtoolkit
-      POSTGRES_PASSWORD: test_password
+          environment:
+        POSTGRES_DB: ragtoolkit
+        POSTGRES_USER: ragtoolkit
+        POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-test_build_password_$(openssl rand -hex 8)}
     ports:
       - "5433:5432"
     healthcheck:
@@ -126,8 +126,8 @@ services:
   ragtoolkit:
     image: $FULL_IMAGE_NAME
     environment:
-      DATABASE_URL: postgresql://ragtoolkit:test_password@postgres:5432/ragtoolkit
-      RAGTOOLKIT_API_KEY: test_key_123
+              DATABASE_URL: postgresql://ragtoolkit:\${POSTGRES_PASSWORD:-test_build_password_$(openssl rand -hex 8)}@postgres:5432/ragtoolkit
+        RAGTOOLKIT_API_KEY: \${RAGTOOLKIT_API_KEY:-test_build_key_$(openssl rand -hex 16)}
     ports:
       - "8001:8000"  # Use different port to avoid conflicts
       - "3001:3000"

@@ -102,6 +102,22 @@ ragtoolkit config --api-url http://localhost:8000 --openai-key YOUR_KEY
 - `DATABASE_URL`: PostgreSQL connection string (default: SQLite)
 - `RAGTOOLKIT_API_KEY`: API key for authentication
 - `OPENAI_API_KEY`: OpenAI API key for LLM-based evaluation
+- `POSTGRES_PASSWORD`: Database password (required for production)
+
+## Security
+
+🔒 **Important**: Never commit secrets to version control. Always use environment variables:
+
+```bash
+# Set secure passwords for production
+export POSTGRES_PASSWORD="your_secure_password_here"
+export RAGTOOLKIT_API_KEY="your_api_key_here"
+
+# Run with secure environment
+docker-compose up
+```
+
+The default development passwords are **not secure** and should be changed in production environments.
 
 ## Development
 

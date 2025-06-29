@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ragtoolkit
       POSTGRES_USER: ragtoolkit
-      POSTGRES_PASSWORD: ragtoolkit_pass
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-please_change_this_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -18,7 +18,7 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql://ragtoolkit:ragtoolkit_pass@postgres:5432/ragtoolkit
+      DATABASE_URL: postgresql://ragtoolkit:${POSTGRES_PASSWORD:-please_change_this_password}@postgres:5432/ragtoolkit
       RAGTOOLKIT_API_KEY: ${RAGTOOLKIT_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
