@@ -17,6 +17,7 @@ function App() {
             <Route path="/traces" element={<TracesList />} />
             <Route path="/traces/:traceId" element={<TraceDetail />} />
             <Route path="/integrate" element={<IntegrationWizard />} />
+            <Route path="*" element={<div><h1>404 - Route not found</h1><p>Current path: {window.location.pathname}</p></div>} />
           </Routes>
         </main>
       </div>
