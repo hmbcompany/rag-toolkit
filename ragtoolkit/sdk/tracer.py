@@ -54,6 +54,11 @@ class RAGTracker:
         self.project = project or config.project
         self.session = httpx.AsyncClient()
         self._current_trace = threading.local()
+    
+    @classmethod
+    def get_current_tracker(cls) -> Optional['RAGTracker']:
+        """Get the current global tracker instance."""
+        return _global_tracker
         
     def _get_headers(self) -> Dict[str, str]:
         """Get HTTP headers for API requests."""

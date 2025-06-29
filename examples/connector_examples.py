@@ -84,7 +84,65 @@ def ollama_example():
     # Trace automatically sent to RAG Toolkit!
 
 
-# Example 5: Wrapper Pattern (Existing Clients)
+# Example 5: Pinecone Vector Store
+def pinecone_example():
+    """Example using Pinecone with automatic retrieval tracing"""
+    from ragtoolkit.pinecone import traced_pinecone_index
+    from ragtoolkit import trace
+    
+    # Create traced Pinecone index
+    index = traced_pinecone_index("your-index-name")
+    
+    @trace
+    def rag_with_pinecone(query: str) -> str:
+        # Vector search with automatic tracing
+        results = index.query(
+            vector=[0.1] * 1536,  # Your query vector
+            top_k=5,
+            include_metadata=True
+        )
+        
+        # Process results (this would be your RAG logic)
+        context = "\n".join([match.metadata.get('text', '') for match in results.matches])
+        
+        # Your LLM call would go here
+        return f"Answer based on: {context[:100]}..."
+    
+    return rag_with_pinecone("What is machine learning?")
+
+
+# Example 6: Weaviate Vector Store
+def weaviate_example():
+    """Example using Weaviate with automatic retrieval tracing"""
+    from ragtoolkit.weaviate import traced_weaviate_client
+    from ragtoolkit import trace
+    
+    # Create traced Weaviate client
+    client = traced_weaviate_client("http://localhost:8080")
+    
+    @trace
+    def rag_with_weaviate(query: str) -> str:
+        # Vector search with automatic tracing
+        results = (
+            client.query
+            .get("Article", ["title", "content"])
+            .with_near_text({"concepts": [query]})
+            .with_limit(5)
+            .with_additional(["certainty"])
+            .do()
+        )
+        
+        # Process results (this would be your RAG logic)
+        articles = results['data']['Get']['Article']
+        context = "\n".join([article['content'] for article in articles])
+        
+        # Your LLM call would go here
+        return f"Answer based on: {context[:100]}..."
+    
+    return rag_with_weaviate("What is artificial intelligence?")
+
+
+# Example 7: Wrapper Pattern (Existing Clients)
 def wrapper_pattern_example():
     """Example showing how to wrap existing clients"""
     from openai import OpenAI
