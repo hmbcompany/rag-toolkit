@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 RAGTK_VERSION="latest"
-COMPOSE_URL="https://raw.githubusercontent.com/hamishbuist/rag-toolkit-app/main/docker-compose.production.yml"
+COMPOSE_URL="https://raw.githubusercontent.com/hmbcompany/rag-toolkit/main/docker-compose.production.yml"
 RAGTK_DIR="$HOME/.ragtoolkit"
 CONFIG_FILE="$HOME/.ragtk.yaml"
 
