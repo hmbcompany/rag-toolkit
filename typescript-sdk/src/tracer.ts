@@ -2,8 +2,12 @@
  * Core tracing functionality for RAG applications - TypeScript SDK
  */
 
-import * as crypto from 'crypto';
-import fetch from 'node-fetch';
+import { randomUUID } from 'crypto';
+
+// Use Node.js built-in fetch (Node 18+) or fallback
+const globalFetch = globalThis.fetch || (() => {
+  throw new Error('fetch is not available. Please use Node.js 18+ or install a polyfill.');
+});
 import {
   TraceData,
   ChunkData,
@@ -54,7 +58,7 @@ export class RAGTracker {
    */
   startTrace(userInput?: string, metadata: Record<string, any> = {}): TraceData {
     const trace: TraceData = {
-      trace_id: crypto.randomUUID(),
+      trace_id: randomUUID(),
       timestamp: Date.now() / 1000,
       project: this.config.project,
       user_input: userInput,
@@ -139,7 +143,7 @@ export class RAGTracker {
         headers['Authorization'] = `Bearer ${this.config.apiKey}`;
       }
 
-      const response = await fetch(`${this.config.apiUrl}/api/v1/traces`, {
+      const response = await globalFetch(`${this.config.apiUrl}/api/v1/traces`, {
         method: 'POST',
         headers,
         body: JSON.stringify(traceToSubmit)
@@ -280,7 +284,7 @@ function wrapFunction<T extends (...args: any[]) => any>(
       }
 
       return result;
-    });
+    }) as Promise<ReturnType<T>>;
   };
 }
 
@@ -299,9 +303,9 @@ export const tracer = {
     const { context, execute } = await tracker.traceContext(userInput);
 
     if (fn) {
-      return execute(fn);
+      return execute(fn) as Promise<T>;
     } else {
-      return context;
+      return context as TraceContext;
     }
   },
 
