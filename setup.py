@@ -14,9 +14,9 @@ setup(
     description="Observability and evaluation toolkit for RAG applications",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/hamishbuist/rag-toolkit-app",
+    url="https://github.com/hmbcompany/rag-toolkit",
     author="RAG Toolkit Team",
-    author_email="support@ragtoolkit.com",
+    author_email="hello@ragtoolkit.dev",
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -65,9 +65,9 @@ setup(
         ],
     },
     project_urls={
-        "Bug Reports": "https://github.com/hamishbuist/rag-toolkit-app/issues",
-        "Source": "https://github.com/hamishbuist/rag-toolkit-app/",
-        "Documentation": "https://docs.ragtoolkit.com/",
-        "Homepage": "https://ragtoolkit.com/",
+        "Bug Reports": "https://github.com/hmbcompany/rag-toolkit/issues",
+        "Source": "https://github.com/hmbcompany/rag-toolkit/",
+        "Documentation": "https://docs.ragtoolkit.dev/",
+        "Homepage": "https://ragtoolkit.dev/",
     },
 ) 
