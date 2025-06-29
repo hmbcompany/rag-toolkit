@@ -101,12 +101,14 @@ const IntegrationWizard = () => {
         setup.push('vectorstore = PineconeVectorStore.from_existing_index("your-index")');
       }
 
+      const retrievalLine = vectorStore !== 'none' ? 'retriever = vectorstore.as_retriever()' : '# Add your retrieval logic here';
+
       example = `
 @trace
 def ask_question(query: str) -> str:
     """Your RAG function with automatic tracing"""
     llm = ChatOpenAI(model="gpt-4")
-    ${vectorStore !== 'none' ? 'retriever = vectorstore.as_retriever()' : '# Add your retrieval logic here'}
+    ${retrievalLine}
     
     # Your RAG logic here
     response = llm.invoke(query)
@@ -141,6 +143,9 @@ def my_rag_function(query: str) -> str:
     return "Your RAG response here"`;
     }
 
+    const functionName = framework === 'llamaindex' ? 'query_documents' : framework === 'langchain' ? 'ask_question' : 'my_rag_function';
+    const viewUrl = apiUrl.replace('localhost', '127.0.0.1');
+
     return `# RAG Toolkit Integration - ${framework}
 ${imports.join('\n')}
 
@@ -150,13 +155,15 @@ ${example}
 
 # Test your integration
 if __name__ == "__main__":
-    result = ${framework === 'llamaindex' ? 'query_documents' : framework === 'langchain' ? 'ask_question' : 'my_rag_function'}("What is the capital of France?")
+    result = ${functionName}("What is the capital of France?")
     print(result)
     
-    # View traces at: ${apiUrl.replace('localhost', '127.0.0.1')}`;
+    # View traces at: ${viewUrl}`;
   };
 
   const generateJavaScriptCode = (framework, llm, vectorStore, project, token, apiUrl) => {
+    const viewUrl = apiUrl.replace('localhost', '127.0.0.1');
+    
     return `// RAG Toolkit Integration - JavaScript
 import { trace, configure } from '@ragtoolkit/sdk';
 
@@ -178,7 +185,7 @@ const ragFunction = trace(async (query) => {
 ragFunction("What is the capital of France?")
   .then(result => console.log(result));
   
-// View traces at: ${apiUrl.replace('localhost', '127.0.0.1')}`;
+// View traces at: ${viewUrl}`;
   };
 
   const copyCode = async () => {
