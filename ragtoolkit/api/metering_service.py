@@ -11,7 +11,7 @@ from typing import List, Dict, Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
 from .models import Tenant, TraceRecord, TenantUser, UsageRecord
@@ -80,8 +80,8 @@ class MeteringService:
             
             # Calculate token usage
             token_stats = db.query(
-                db.func.coalesce(db.func.sum(TraceRecord.tokens_in), 0).label('total_tokens_in'),
-                db.func.coalesce(db.func.sum(TraceRecord.tokens_out), 0).label('total_tokens_out')
+                func.coalesce(func.sum(TraceRecord.tokens_in), 0).label('total_tokens_in'),
+                func.coalesce(func.sum(TraceRecord.tokens_out), 0).label('total_tokens_out')
             ).filter(
                 TraceRecord.tenant_id == tenant_id,
                 TraceRecord.timestamp >= period_start,

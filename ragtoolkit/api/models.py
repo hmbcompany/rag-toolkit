@@ -8,7 +8,8 @@ from sqlalchemy import Column, String, DateTime, Float, Integer, Text, Boolean, 
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+from uuid import UUID
 
 
 Base = declarative_base()
@@ -177,6 +178,10 @@ class TenantResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
+    @field_serializer('id')
+    def serialize_id(self, value):
+        return str(value) if value else None
+    
     class Config:
         from_attributes = True
 
@@ -197,6 +202,10 @@ class TenantUserResponse(BaseModel):
     last_login: Optional[datetime]
     created_at: datetime
     
+    @field_serializer('id')
+    def serialize_id(self, value):
+        return str(value) if value else None
+    
     class Config:
         from_attributes = True
 
@@ -212,6 +221,10 @@ class UsageResponse(BaseModel):
     storage_mb: float
     total_tokens_in: int
     total_tokens_out: int
+    
+    @field_serializer('id')
+    def serialize_id(self, value):
+        return str(value) if value else None
     
     class Config:
         from_attributes = True
@@ -261,6 +274,10 @@ class TraceResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
+    @field_serializer('id')
+    def serialize_id(self, value):
+        return str(value) if value else None
+    
     class Config:
         from_attributes = True
 
@@ -285,6 +302,10 @@ class EvaluationResponse(BaseModel):
     eval_metadata: Dict[str, Any]
     evaluator_version: Optional[str]
     evaluation_timestamp: datetime
+    
+    @field_serializer('id')
+    def serialize_id(self, value):
+        return str(value) if value else None
     
     class Config:
         from_attributes = True
