@@ -33,6 +33,10 @@ isort>=5.12.0
 flake8>=6.0.0
 mypy>=1.5.0
 
+# Multi-tenant and billing dependencies
+stripe>=7.0.0  # Stripe payment processing
+redis>=5.0.0  # For rate limiting (alternative to in-memory)
+
 # Optional: For enhanced features
 # openai>=1.0.0  # For LLM-based evaluation
 # anthropic>=0.3.0  # Alternative LLM provider 

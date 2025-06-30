@@ -1,28 +1,40 @@
 """
-Main FastAPI application for RAG Toolkit API.
+Main FastAPI application for RAG Toolkit API - Sprint 3 Multi-Tenant.
 
 Provides endpoints for:
-- Receiving and storing RAG traces
-- Retrieving trace data and statistics  
-- Evaluation results
-- Dashboard data
+- Multi-tenant trace management
+- Tenant and user management
+- Billing and subscription management
+- Usage tracking and metering
+- Rate limiting per tenant
 """
 
 import os
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
+from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 
-from .models import Base, TraceCreate, TraceResponse, TraceListResponse, StatsResponse
-from .crud import TraceCRUD, EvaluationCRUD, StatsCRUD
+from .models import (
+    Base, TraceCreate, TraceResponse, TraceListResponse, StatsResponse,
+    TenantCreate, TenantResponse, TenantUserCreate, TenantUserResponse, 
+    UsageResponse, Tenant, TenantUser
+)
+from .crud import (
+    TraceCRUD, EvaluationCRUD, StatsCRUD, TenantCRUD, 
+    TenantUserCRUD, UsageCRUD
+)
+from .stripe_service import StripeService, TenantBillingService
+from .metering_service import MeteringScheduler
+from .rate_limiter import RateLimitMiddleware
 from ..sdk.evaluator import CompositeScorer
 
 
@@ -45,11 +57,12 @@ Base.metadata.create_all(bind=engine)
 
 # Security
 security = HTTPBearer(auto_error=False)
-API_KEY = os.getenv("RAGTOOLKIT_API_KEY")
+LEGACY_API_KEY = os.getenv("RAGTOOLKIT_API_KEY")  # For backward compatibility
 
-# Background evaluator
+# Background services
 evaluator = CompositeScorer()
 evaluation_task = None
+metering_scheduler = None
 
 
 def get_db():
@@ -61,86 +74,141 @@ def get_db():
         db.close()
 
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Authentication dependency."""
-    if API_KEY and credentials:
-        if credentials.credentials != API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-    elif API_KEY and not credentials:
+class TenantContext:
+    """Context object for tenant and user information."""
+    def __init__(self, tenant: Tenant, user: TenantUser):
+        self.tenant = tenant
+        self.user = user
+
+
+def get_tenant_context(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+) -> TenantContext:
+    """Enhanced authentication dependency that resolves tenant context."""
+    
+    # Handle legacy API key for backward compatibility
+    if LEGACY_API_KEY and credentials and credentials.credentials == LEGACY_API_KEY:
+        # Create or get default tenant for legacy support
+        default_tenant = TenantCRUD.get_tenant_by_slug(db, "default")
+        if not default_tenant:
+            # Create default tenant for legacy users
+            default_tenant = TenantCRUD.create_tenant(
+                db, 
+                TenantCreate(
+                    slug="default", 
+                    name="Default Tenant", 
+                    admin_email="admin@localhost"
+                )
+            )
+        
+        # Get admin user for default tenant
+        admin_user = TenantUserCRUD.list_tenant_users(db, default_tenant.id)[0]
+        return TenantContext(default_tenant, admin_user)
+    
+    # Tenant-based API key authentication
+    if not credentials:
         raise HTTPException(status_code=401, detail="API key required")
-    return True
+    
+    api_key = credentials.credentials
+    user = TenantUserCRUD.get_user_by_api_key(db, api_key)
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
+    if not user.is_active:
+        raise HTTPException(status_code=401, detail="User account disabled")
+    
+    # Update last login
+    TenantUserCRUD.update_user_login(db, user.id)
+    
+    # Get tenant
+    tenant = TenantCRUD.get_tenant(db, user.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=401, detail="Tenant not found")
+    
+    return TenantContext(tenant, user)
 
 
 async def evaluate_traces_background():
-    """Background task to evaluate traces."""
+    """Background task to evaluate traces for all tenants."""
     while True:
         try:
             db = SessionLocal()
             try:
-                # Get traces that need evaluation
-                traces = TraceCRUD.get_traces_for_evaluation(db, limit=10)
+                # Get all tenants
+                tenants = TenantCRUD.list_tenants(db, limit=1000)
                 
-                for trace in traces:
-                    if not trace.model_output:
-                        continue
-                        
-                    try:
-                        # Run evaluation
-                        composite_score = await evaluator.score(
-                            answer=trace.model_output,
-                            retrieved_chunks=trace.retrieved_chunks or [],
-                            query=trace.user_input
-                        )
-                        
-                        # Update trace with scores
-                        TraceCRUD.update_trace_scores(
-                            db,
-                            trace.trace_id,
-                            grounding_score=composite_score.grounding.score if composite_score.grounding else None,
-                            helpfulness_score=composite_score.helpfulness.score if composite_score.helpfulness else None,
-                            safety_score=composite_score.safety.score if composite_score.safety else None,
-                            overall_score=composite_score.overall_score,
-                            traffic_light=composite_score.overall_traffic_light.value
-                        )
-                        
-                        # Store detailed evaluations
-                        if composite_score.grounding:
-                            EvaluationCRUD.create_evaluation(
-                                db,
-                                trace.trace_id,
-                                "grounding",
-                                composite_score.grounding.score,
-                                composite_score.grounding.confidence,
-                                composite_score.grounding.explanation,
-                                composite_score.grounding.metadata
+                for tenant in tenants:
+                    # Get traces that need evaluation for this tenant
+                    traces = TraceCRUD.get_traces_for_evaluation(db, tenant.id, limit=5)
+                    
+                    for trace in traces:
+                        if not trace.model_output:
+                            continue
+                            
+                        try:
+                            # Run evaluation
+                            composite_score = await evaluator.score(
+                                answer=trace.model_output,
+                                retrieved_chunks=trace.retrieved_chunks or [],
+                                query=trace.user_input
                             )
                             
-                        if composite_score.helpfulness:
-                            EvaluationCRUD.create_evaluation(
+                            # Update trace with scores
+                            TraceCRUD.update_trace_scores(
                                 db,
+                                tenant.id,
                                 trace.trace_id,
-                                "helpfulness", 
-                                composite_score.helpfulness.score,
-                                composite_score.helpfulness.confidence,
-                                composite_score.helpfulness.explanation,
-                                composite_score.helpfulness.metadata
+                                grounding_score=composite_score.grounding.score if composite_score.grounding else None,
+                                helpfulness_score=composite_score.helpfulness.score if composite_score.helpfulness else None,
+                                safety_score=composite_score.safety.score if composite_score.safety else None,
+                                overall_score=composite_score.overall_score,
+                                traffic_light=composite_score.overall_traffic_light.value
                             )
                             
-                        if composite_score.safety:
-                            EvaluationCRUD.create_evaluation(
-                                db,
-                                trace.trace_id,
-                                "safety",
-                                composite_score.safety.score,
-                                composite_score.safety.confidence,
-                                composite_score.safety.explanation,
-                                composite_score.safety.metadata
-                            )
+                            # Store detailed evaluations
+                            if composite_score.grounding:
+                                EvaluationCRUD.create_evaluation(
+                                    db,
+                                    tenant.id,
+                                    trace.trace_id,
+                                    "grounding",
+                                    composite_score.grounding.score,
+                                    composite_score.grounding.confidence,
+                                    composite_score.grounding.explanation,
+                                    composite_score.grounding.metadata
+                                )
+                                
+                            if composite_score.helpfulness:
+                                EvaluationCRUD.create_evaluation(
+                                    db,
+                                    tenant.id,
+                                    trace.trace_id,
+                                    "helpfulness", 
+                                    composite_score.helpfulness.score,
+                                    composite_score.helpfulness.confidence,
+                                    composite_score.helpfulness.explanation,
+                                    composite_score.helpfulness.metadata
+                                )
+                                
+                            if composite_score.safety:
+                                EvaluationCRUD.create_evaluation(
+                                    db,
+                                    tenant.id,
+                                    trace.trace_id,
+                                    "safety",
+                                    composite_score.safety.score,
+                                    composite_score.safety.confidence,
+                                    composite_score.safety.explanation,
+                                    composite_score.safety.metadata
+                                )
+                                
+                        except Exception as e:
+                            print(f"Error evaluating trace {trace.trace_id}: {e}")
+                            continue
                             
-                    except Exception as e:
-                        print(f"Error evaluating trace {trace.trace_id}: {e}")
-                        continue
-                        
             finally:
                 db.close()
                 
@@ -154,9 +222,14 @@ async def evaluate_traces_background():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifespan."""
+    global evaluation_task, metering_scheduler
+    
     # Start background evaluation task
-    global evaluation_task
     evaluation_task = asyncio.create_task(evaluate_traces_background())
+    
+    # Start metering scheduler
+    metering_scheduler = MeteringScheduler(DATABASE_URL)
+    metering_task = asyncio.create_task(metering_scheduler.run_schedulers())
     
     yield
     
@@ -167,15 +240,25 @@ async def lifespan(app: FastAPI):
             await evaluation_task
         except asyncio.CancelledError:
             pass
+    
+    if metering_scheduler:
+        metering_scheduler.stop()
+        try:
+            await metering_task
+        except asyncio.CancelledError:
+            pass
 
 
 # FastAPI application
 app = FastAPI(
-    title="RAG Toolkit API",
-    description="API for RAG observability and evaluation",
-    version="0.1.0",
+    title="RAG Toolkit API - Multi-Tenant",
+    description="Multi-tenant API for RAG observability and evaluation",
+    version="0.3.0",
     lifespan=lifespan
 )
+
+# Add rate limiting middleware
+app.add_middleware(RateLimitMiddleware, default_rate=200)
 
 # CORS middleware
 app.add_middleware(
@@ -190,57 +273,116 @@ app.add_middleware(
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {"message": "RAG Toolkit API", "version": "0.2.0", "status": "healthy"}
+    return {"message": "RAG Toolkit API - Multi-Tenant", "version": "0.3.0", "status": "healthy"}
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Docker."""
-    return {"status": "healthy", "version": "0.2.0"}
+    return {"status": "healthy", "version": "0.3.0", "features": ["multi-tenant", "rate-limiting", "billing"]}
 
 
-@app.get("/api/config")
-async def get_config():
-    """Get user configuration for the integration wizard."""
-    from ..config import get_config
+# =============================================================================
+# TENANT MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@app.post("/api/v1/tenants", response_model=TenantResponse, status_code=201)
+async def create_tenant(
+    tenant_data: TenantCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new tenant (public endpoint for signup)."""
+    try:
+        # Check if slug is already taken
+        existing = TenantCRUD.get_tenant_by_slug(db, tenant_data.slug)
+        if existing:
+            raise HTTPException(status_code=409, detail="Tenant slug already exists")
+        
+        tenant = TenantCRUD.create_tenant(db, tenant_data)
+        
+        # Set up billing if Stripe is configured
+        try:
+            if os.getenv("STRIPE_SECRET_KEY"):
+                TenantBillingService.setup_tenant_billing(
+                    db, tenant.id, tenant_data.admin_email
+                )
+        except Exception as e:
+            print(f"Warning: Failed to set up billing for tenant {tenant.id}: {e}")
+        
+        return tenant
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create tenant: {e}")
+
+
+@app.get("/api/v1/tenant", response_model=TenantResponse)
+async def get_current_tenant(context: TenantContext = Depends(get_tenant_context)):
+    """Get current tenant information."""
+    return context.tenant
+
+
+@app.get("/api/v1/tenant/users", response_model=List[TenantUserResponse])
+async def list_tenant_users(
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """List users in current tenant."""
+    if context.user.role not in ["admin", "analyst"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     
-    config = get_config()
-    return {
-        "api_url": config.api_url,
-        "project": config.project,
-        "token": config.token,
-        "version": config.version
-    }
+    users = TenantUserCRUD.list_tenant_users(db, context.tenant.id)
+    return users
 
 
-@app.patch("/api/config")
-async def update_config(updates: dict):
-    """Update user configuration."""
-    from ..config import ConfigManager
+@app.post("/api/v1/tenant/users", response_model=TenantUserResponse, status_code=201)
+async def create_tenant_user(
+    user_data: TenantUserCreate,
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """Create a new user in current tenant."""
+    if context.user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     
-    # Initialize config manager
-    config_manager = ConfigManager()
+    # Check user limit
+    current_users = TenantUserCRUD.list_tenant_users(db, context.tenant.id)
+    if len(current_users) >= context.tenant.max_users:
+        raise HTTPException(status_code=403, detail="User limit exceeded")
     
-    # Update specific fields
-    if "project" in updates:
-        config_manager.update_project(updates["project"])
-    
-    return {"status": "updated", "updates": updates}
+    user = TenantUserCRUD.create_user(db, context.tenant.id, user_data)
+    return user
 
+
+# =============================================================================
+# TRACE MANAGEMENT ENDPOINTS (Updated for Multi-Tenancy)
+# =============================================================================
 
 @app.post("/api/v1/traces", status_code=201)
 async def create_trace(
     trace: TraceCreate,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """Create a new trace."""
+    """Create a new trace for the current tenant."""
     try:
-        db_trace = TraceCRUD.create_trace(db, trace)
-        return {"message": "Trace created successfully", "trace_id": db_trace.trace_id}
+        db_trace = TraceCRUD.create_trace(db, context.tenant.id, trace)
+        
+        # Schedule evaluation if model output is present
+        if db_trace.model_output:
+            background_tasks.add_task(
+                TraceCRUD.get_traces_for_evaluation, 
+                db, 
+                context.tenant.id, 
+                1
+            )
+        
+        return {"trace_id": db_trace.trace_id, "status": "created"}
+        
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to create trace: {e}")
 
 
 @app.get("/api/v1/traces", response_model=TraceListResponse)
@@ -252,15 +394,16 @@ async def list_traces(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
     has_error: Optional[bool] = None,
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """List traces with pagination and filtering."""
+    """List traces for the current tenant."""
     skip = (page - 1) * size
     
     traces = TraceCRUD.list_traces(
-        db, 
-        skip=skip, 
+        db,
+        context.tenant.id,
+        skip=skip,
         limit=size,
         model_name=model_name,
         traffic_light=traffic_light,
@@ -271,6 +414,7 @@ async def list_traces(
     
     total = TraceCRUD.count_traces(
         db,
+        context.tenant.id,
         model_name=model_name,
         traffic_light=traffic_light,
         start_date=start_date,
@@ -278,221 +422,216 @@ async def list_traces(
         has_error=has_error
     )
     
-    has_next = (skip + size) < total
-    
     return TraceListResponse(
-        traces=[TraceResponse.model_validate({
-            **trace.__dict__,
-            'id': str(trace.id)
-        }) for trace in traces],
+        traces=traces,
         total=total,
         page=page,
         size=size,
-        has_next=has_next
+        has_next=(skip + size) < total
     )
 
 
 @app.get("/api/v1/traces/{trace_id}", response_model=TraceResponse)
 async def get_trace(
     trace_id: str,
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """Get a specific trace by ID."""
-    # Try both lookup methods since both id and trace_id can be UUIDs
-    trace = None
-    
-    # First try looking up by database UUID (id field)
-    try:
-        from uuid import UUID
-        trace_uuid = UUID(trace_id)
-        trace = TraceCRUD.get_trace_by_uuid(db, trace_uuid)
-    except ValueError:
-        pass
-    
-    # If not found, try looking up by trace_id field
-    if not trace:
-        trace = TraceCRUD.get_trace(db, trace_id)
-    
+    """Get a specific trace for the current tenant."""
+    trace = TraceCRUD.get_trace(db, context.tenant.id, trace_id)
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
-    
-    return TraceResponse.model_validate({
-        **trace.__dict__,
-        'id': str(trace.id)
-    })
+    return trace
 
 
 @app.get("/api/v1/traces/{trace_id}/evaluations")
 async def get_trace_evaluations(
     trace_id: str,
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """Get all evaluations for a specific trace."""
-    # Find the trace using both lookup methods
-    trace = None
-    
-    # First try looking up by database UUID (id field)
-    try:
-        from uuid import UUID
-        trace_uuid = UUID(trace_id)
-        trace = TraceCRUD.get_trace_by_uuid(db, trace_uuid)
-    except ValueError:
-        pass
-    
-    # If not found, try looking up by trace_id field
-    if not trace:
-        trace = TraceCRUD.get_trace(db, trace_id)
-    
+    """Get evaluations for a specific trace."""
+    # Verify trace exists and belongs to tenant
+    trace = TraceCRUD.get_trace(db, context.tenant.id, trace_id)
     if not trace:
         raise HTTPException(status_code=404, detail="Trace not found")
     
-    # Use the actual trace_id from the database record
-    actual_trace_id = trace.trace_id
-    
-    evaluations = EvaluationCRUD.get_evaluations_for_trace(db, actual_trace_id)
-    return [
-        {
-            "id": str(eval.id),
-            "trace_id": eval.trace_id,
-            "score_type": eval.score_type,
-            "score": eval.score,
-            "confidence": eval.confidence,
-            "explanation": eval.explanation,
-            "eval_metadata": eval.eval_metadata or {},
-            "evaluator_version": eval.evaluator_version,
-            "evaluation_timestamp": eval.evaluation_timestamp.isoformat() if eval.evaluation_timestamp else None
-        }
-        for eval in evaluations
-    ]
+    evaluations = EvaluationCRUD.get_evaluations_for_trace(db, context.tenant.id, trace_id)
+    return {"trace_id": trace_id, "evaluations": evaluations}
 
 
 @app.get("/api/v1/stats", response_model=StatsResponse)
 async def get_stats(
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """Get dashboard statistics."""
-    stats = StatsCRUD.get_dashboard_stats(db)
+    """Get statistics for the current tenant."""
+    stats = StatsCRUD.get_dashboard_stats(db, context.tenant.id)
     return StatsResponse(**stats)
 
 
 @app.get("/api/v1/stats/timeseries")
 async def get_timeseries(
     hours: int = Query(24, ge=1, le=168),  # Max 1 week
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """Get time series data for charts."""
-    data = StatsCRUD.get_time_series_data(db, hours=hours)
-    return {"data": data}
+    """Get time series data for the current tenant."""
+    timeseries = StatsCRUD.get_time_series_data(db, context.tenant.id, hours)
+    return {"timeseries": timeseries}
 
 
-@app.post("/api/v1/traces/{trace_id}/evaluate")
-async def manual_evaluate_trace(
-    trace_id: str,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
+# =============================================================================
+# USAGE AND BILLING ENDPOINTS
+# =============================================================================
+
+@app.get("/api/v1/usage", response_model=Dict[str, Any])
+async def get_current_usage(
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
 ):
-    """Manually trigger evaluation for a specific trace."""
-    # Find the trace using both lookup methods
-    trace = None
+    """Get current usage for the tenant."""
+    usage = UsageCRUD.calculate_current_usage(db, context.tenant.id)
+    return usage
+
+
+@app.get("/api/v1/usage/history")
+async def get_usage_history(
+    months: int = Query(3, ge=1, le=12),
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """Get usage history for the tenant."""
+    usage_records = UsageCRUD.get_tenant_usage_history(db, context.tenant.id, limit=months)
+    return {"usage_history": usage_records}
+
+
+@app.get("/api/v1/billing")
+async def get_billing_info(
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """Get billing information for the tenant."""
+    if context.user.role not in ["admin"]:
+        raise HTTPException(status_code=403, detail="Admin access required")
     
-    # First try looking up by database UUID (id field) 
     try:
-        from uuid import UUID
-        trace_uuid = UUID(trace_id)
-        trace = TraceCRUD.get_trace_by_uuid(db, trace_uuid)
-    except ValueError:
-        pass
+        billing_info = TenantBillingService.get_tenant_billing_info(db, context.tenant.id)
+        return billing_info
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get billing info: {e}")
+
+
+@app.post("/api/v1/billing/setup")
+async def setup_billing(
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """Set up billing for the tenant."""
+    if context.user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     
-    # If not found, try looking up by trace_id field
-    if not trace:
-        trace = TraceCRUD.get_trace(db, trace_id)
+    try:
+        result = TenantBillingService.setup_tenant_billing(
+            db, context.tenant.id, context.user.email
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to set up billing: {e}")
+
+
+@app.post("/api/v1/billing/subscription")
+async def create_subscription(
+    plan: str = Query(..., regex="^(starter|pro|enterprise)$"),
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """Create a subscription for the tenant."""
+    if context.user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     
-    if not trace:
-        raise HTTPException(status_code=404, detail="Trace not found")
+    try:
+        result = TenantBillingService.create_tenant_subscription(
+            db, context.tenant.id, plan
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create subscription: {e}")
+
+
+@app.post("/api/v1/billing/invoice/test")
+async def generate_test_invoice(
+    context: TenantContext = Depends(get_tenant_context),
+    db: Session = Depends(get_db)
+):
+    """Generate a test invoice for the current period."""
+    if context.user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     
-    if not trace.model_output:
-        raise HTTPException(status_code=400, detail="Trace has no output to evaluate")
-    
-    # Add to background tasks for evaluation
-    async def evaluate_single_trace():
+    try:
+        now = datetime.utcnow()
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        period_end = now
+        
+        result = TenantBillingService.generate_usage_invoice(
+            db, context.tenant.id, period_start, period_end
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate invoice: {e}")
+
+
+# =============================================================================
+# LEGACY ENDPOINTS (Backward Compatibility)
+# =============================================================================
+
+@app.get("/api/config")
+async def get_config():
+    """Legacy config endpoint."""
+    return {
+        "api_url": "http://localhost:8000",
+        "project": "default",
+        "version": "0.3.0",
+        "features": ["multi-tenant", "rate-limiting", "billing"]
+    }
+
+
+@app.patch("/api/config")
+async def update_config(updates: dict):
+    """Legacy config update endpoint."""
+    return {"status": "config_updated", "updates": updates}
+
+
+# =============================================================================
+# ADMIN ENDPOINTS
+# =============================================================================
+
+@app.get("/api/v1/admin/tenants")
+async def admin_list_tenants(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to list all tenants."""
+    # In a real system, this would require admin authentication
+    tenants = TenantCRUD.list_tenants(db, skip=skip, limit=limit)
+    return {"tenants": tenants}
+
+
+@app.post("/api/v1/admin/metering/run")
+async def admin_run_metering(
+    db: Session = Depends(get_db)
+):
+    """Admin endpoint to manually trigger metering."""
+    global metering_scheduler
+    if metering_scheduler:
         try:
-            composite_score = await evaluator.score(
-                answer=trace.model_output,
-                retrieved_chunks=trace.retrieved_chunks or [],
-                query=trace.user_input
-            )
-            
-            # Update scores in database
-            TraceCRUD.update_trace_scores(
-                db,
-                trace.trace_id,
-                grounding_score=composite_score.grounding.score if composite_score.grounding else None,
-                helpfulness_score=composite_score.helpfulness.score if composite_score.helpfulness else None,
-                safety_score=composite_score.safety.score if composite_score.safety else None,
-                overall_score=composite_score.overall_score,
-                traffic_light=composite_score.overall_traffic_light.value
-            )
+            results = metering_scheduler.metering_service.run_hourly_aggregation()
+            return {"status": "metering_complete", "results": results}
         except Exception as e:
-            print(f"Manual evaluation failed for {trace_id}: {e}")
-    
-    background_tasks.add_task(evaluate_single_trace)
-    
-    return {"message": "Evaluation started", "trace_id": trace_id}
-
-
-@app.delete("/api/v1/traces/cleanup")
-async def cleanup_old_traces(
-    days: int = Query(30, ge=1, le=365),
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
-):
-    """Delete traces older than specified days."""
-    deleted_count = TraceCRUD.delete_old_traces(db, days_to_keep=days)
-    return {"message": f"Deleted {deleted_count} old traces", "days": days}
-
-
-@app.get("/api/v1/export/traces")
-async def export_traces(
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    format: str = Query("json", regex="^(json|csv)$"),
-    db: Session = Depends(get_db),
-    _: bool = Depends(get_current_user)
-):
-    """Export traces for audit purposes."""
-    # Set default date range if not provided
-    if not end_date:
-        end_date = datetime.utcnow()
-    if not start_date:
-        start_date = end_date - timedelta(days=30)
-    
-    traces = TraceCRUD.list_traces(
-        db,
-        start_date=start_date,
-        end_date=end_date,
-        limit=10000  # Large limit for export
-    )
-    
-    if format == "json":
-        return {
-            "traces": [TraceResponse.model_validate({
-                **trace.__dict__,
-                'id': str(trace.id)
-            }).model_dump() for trace in traces],
-            "exported_at": datetime.utcnow(),
-            "date_range": {
-                "start": start_date,
-                "end": end_date
-            }
-        }
+            raise HTTPException(status_code=500, detail=f"Metering failed: {e}")
     else:
-        # CSV format would be implemented here
-        raise HTTPException(status_code=501, detail="CSV export not yet implemented")
+        raise HTTPException(status_code=503, detail="Metering service not available")
 
 
 if __name__ == "__main__":
