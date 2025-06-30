@@ -2,14 +2,13 @@
 
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from uuid import uuid4
+from uuid import UUID as PyUUID, uuid4
 
 from sqlalchemy import Column, String, DateTime, Float, Integer, Text, Boolean, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from pydantic import BaseModel, Field, field_serializer
-from uuid import UUID
 
 
 Base = declarative_base()
@@ -19,7 +18,7 @@ class Tenant(Base):
     """Database model for tenants in multi-tenant setup."""
     __tablename__ = "tenants"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(UUID, primary_key=True, default=uuid4)
     slug = Column(String(50), unique=True, nullable=False, index=True)  # for subdomain
     name = Column(String(200), nullable=False)
     
@@ -47,8 +46,8 @@ class TenantUser(Base):
     """Database model for users within a tenant."""
     __tablename__ = "tenant_users"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+    id = Column(UUID, primary_key=True, default=uuid4)
+    tenant_id = Column(UUID, ForeignKey("tenants.id"), nullable=False, index=True)
     email = Column(String(255), nullable=False, index=True)
     role = Column(String(20), default="viewer")  # admin, analyst, viewer
     api_key = Column(String(100), unique=True, index=True)
@@ -69,8 +68,8 @@ class UsageRecord(Base):
     """Database model for tracking tenant usage metrics."""
     __tablename__ = "usage_records"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+    id = Column(UUID, primary_key=True, default=uuid4)
+    tenant_id = Column(UUID, ForeignKey("tenants.id"), nullable=False, index=True)
     
     # Usage period
     period_start = Column(DateTime, nullable=False, index=True)
@@ -98,8 +97,8 @@ class TraceRecord(Base):
     """Database model for storing RAG traces."""
     __tablename__ = "traces"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+    id = Column(UUID, primary_key=True, default=uuid4)
+    tenant_id = Column(UUID, ForeignKey("tenants.id"), nullable=False, index=True)
     trace_id = Column(String(36), nullable=False, index=True)
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     
@@ -141,8 +140,8 @@ class EvaluationRecord(Base):
     """Database model for storing detailed evaluation results."""
     __tablename__ = "evaluations"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+    id = Column(UUID, primary_key=True, default=uuid4)
+    tenant_id = Column(UUID, ForeignKey("tenants.id"), nullable=False, index=True)
     trace_id = Column(String(36), nullable=False, index=True)
     
     # Score details
